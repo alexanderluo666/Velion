@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import './style.css';
+import { Environment } from './environment';
+import { Player } from './player';
 
 // SCENE
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x050510);
+const environment = new Environment();
+const scene = environment.scene;
 
 // CAMERA
 const camera = new THREE.PerspectiveCamera(
@@ -12,11 +14,16 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
+camera.position.set(0, 5, 0);
+camera.lookAt(0, 0, -10);
 
 // RENDERER
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
 document.body.appendChild(renderer.domElement);
 
 // HUD
@@ -32,52 +39,73 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// LIGHT
-const light = new THREE.PointLight(0xffffff, 1.8);
-light.position.set(5, 10, 5);
-scene.add(light);
-scene.add(new THREE.AmbientLight(0x404040));
-
-// FLOOR
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(200, 200),
-  new THREE.MeshStandardMaterial({ color: 0x111122, roughness: 0.9 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = 0;
-scene.add(floor);
-
 // TARGET
 const targetMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000, metalness: 0.2, roughness: 0.4 });
-const target = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), targetMaterial);
-target.position.set(0, 1, -10);
+const target = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), targetMaterial);
+target.position.set(0, 1.5, -18);
+target.castShadow = true;
 scene.add(target);
 
-// GUN
-const gun = new THREE.Group();
-const gunBody = new THREE.Mesh(
-  new THREE.BoxGeometry(0.16, 0.09, 0.4),
-  new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 })
-);
-gunBody.position.set(0, -0.1, -0.3);
-gun.add(gunBody);
+// AUDIO
+const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
 
-const gunBarrel = new THREE.Mesh(
-  new THREE.BoxGeometry(0.06, 0.06, 0.18),
-  new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.2 })
-);
-gunBarrel.position.set(0, -0.05, -0.55);
-gun.add(gunBarrel);
+function playShotSound() {
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
 
-camera.add(gun);
+  const osc = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  const now = audioContext.currentTime;
+
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(1300, now);
+  gain.gain.setValueAtTime(0.16, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+
+  osc.connect(gain);
+  gain.connect(audioContext.destination);
+
+  osc.start(now);
+  osc.stop(now + 0.08);
+}
+
+// MUZZLE FLASH
+const muzzleFlash = new THREE.Mesh(
+  new THREE.SphereGeometry(0.08, 8, 6),
+  new THREE.MeshBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.85 })
+);
+muzzleFlash.visible = false;
+camera.add(muzzleFlash);
+muzzleFlash.position.set(0.5, -0.5, -2);
+
+// BULLET EFFECTS
+const bullets: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; material: THREE.MeshBasicMaterial }> = [];
+
+function spawnBullet(origin: THREE.Vector3, direction: THREE.Vector3) {
+  const material = new THREE.MeshBasicMaterial({ color: 0xfff1c8, transparent: true, opacity: 1 });
+  const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), material);
+  bullet.position.copy(origin);
+  const velocity = direction.clone().multiplyScalar(1.3);
+  bullets.push({ mesh: bullet, velocity, life: 40, material });
+  scene.add(bullet);
+}
 
 // PLAYER STATE
+const player = new Player();
+scene.add(player.group);
+scene.add(camera);
+
 let moveForward = false;
 let moveBackward = false;
 let moveLeft = false;
 let moveRight = false;
+let jumpPressed = false;
+let sprint = false;
 let yaw = 0;
 let pitch = 0;
+const gravity = -0.01;
+const jumpStrength = 0.3;
 const raycaster = new THREE.Raycaster();
 let lastShot = 0;
 
@@ -111,6 +139,8 @@ document.addEventListener('keydown', (event) => {
     case 's': moveBackward = true; break;
     case 'a': moveLeft = true; break;
     case 'd': moveRight = true; break;
+    case ' ': jumpPressed = true; break;
+    case 'shift': sprint = true; break;
   }
 });
 
@@ -120,6 +150,8 @@ document.addEventListener('keyup', (event) => {
     case 's': moveBackward = false; break;
     case 'a': moveLeft = false; break;
     case 'd': moveRight = false; break;
+    case ' ': jumpPressed = false; break;
+    case 'shift': sprint = false; break;
   }
 });
 
@@ -135,8 +167,16 @@ document.addEventListener('mousedown', (event) => {
 // SHOOTING
 function shoot() {
   const now = performance.now();
-  if (now - lastShot < 200) return;
+  if (now - lastShot < 180) return;
   lastShot = now;
+
+  playShotSound();
+
+  muzzleFlash.visible = true;
+  muzzleFlash.scale.setScalar(1.5 + Math.random() * 0.5);
+  setTimeout(() => {
+    muzzleFlash.visible = false;
+  }, 70);
 
   const direction = new THREE.Vector3();
   camera.getWorldDirection(direction);
@@ -146,34 +186,42 @@ function shoot() {
   if (intersects.length > 0) {
     targetMaterial.color.set(0x00ff00);
     setTimeout(() => targetMaterial.color.set(0xff0000), 150);
-    target.position.set((Math.random() - 0.5) * 16, 1 + Math.random() * 2, -10 - Math.random() * 8);
+    target.position.set((Math.random() - 0.5) * 24, 1.5 + Math.random() * 1.5, -18 - Math.random() * 10);
   }
-}
 
-// START POSITION
-camera.position.set(0, 2, 5);
+  spawnBullet(camera.position.clone(), direction);
+}
 
 // ANIMATION LOOP
 function animate() {
   requestAnimationFrame(animate);
 
-  camera.rotation.order = 'YXZ';
-  camera.rotation.y = yaw;
-  camera.rotation.x = pitch;
+  // Handle jumping
+  if (jumpPressed) {
+    player.jump(jumpStrength);
+  }
 
-  const moveSpeed = 0.12;
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  forward.y = 0;
-  forward.normalize();
+  const groundHeight = environment.getGroundHeight(player.position.x, player.position.z) + 1;
+  player.applyGravity(gravity, groundHeight);
 
-  const right = new THREE.Vector3();
-  right.crossVectors(forward, camera.up).normalize();
+  // Movement
+  let moveSpeed = 0.15;
+  if (sprint) moveSpeed *= 2;
 
-  if (moveForward) camera.position.addScaledVector(forward, moveSpeed);
-  if (moveBackward) camera.position.addScaledVector(forward, -moveSpeed);
-  if (moveLeft) camera.position.addScaledVector(right, -moveSpeed);
-  if (moveRight) camera.position.addScaledVector(right, moveSpeed);
+  player.setRotation(yaw, pitch);
+  player.move(moveForward, moveBackward, moveLeft, moveRight, moveSpeed, camera);
+  player.updateCamera(camera);
+
+  // BULLETS
+  bullets.forEach((bullet, index) => {
+    bullet.mesh.position.add(bullet.velocity);
+    bullet.life -= 1;
+    bullet.material.opacity = Math.max(bullet.life / 40, 0.1);
+    if (bullet.life <= 0) {
+      scene.remove(bullet.mesh);
+      bullets.splice(index, 1);
+    }
+  });
 
   renderer.render(scene, camera);
 }
