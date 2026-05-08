@@ -11,7 +11,7 @@ const scene = environment.scene;
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
-  0.1,
+  0.03,
   1000
 );
 camera.position.set(0, 5, 0);
@@ -21,6 +21,7 @@ camera.lookAt(0, 0, -10);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.autoClear = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
@@ -76,6 +77,7 @@ const muzzleFlash = new THREE.Mesh(
   new THREE.MeshBasicMaterial({ color: 0xfff3a8, transparent: true, opacity: 0.85 })
 );
 muzzleFlash.visible = false;
+muzzleFlash.layers.set(1);
 camera.add(muzzleFlash);
 muzzleFlash.position.set(0.5, -0.5, -2);
 
@@ -223,7 +225,17 @@ function animate() {
     }
   });
 
+  renderer.clear();
+  camera.layers.set(0);
   renderer.render(scene, camera);
+
+  const originalBackground = scene.background;
+  scene.background = null;
+  renderer.clearDepth();
+  camera.layers.set(1);
+  renderer.render(scene, camera);
+  scene.background = originalBackground;
+  camera.layers.enableAll();
 }
 
 animate();

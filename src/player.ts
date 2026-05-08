@@ -16,8 +16,9 @@ export class Player {
 
   private loader: GLTFLoader;
   private readonly eyeHeight = 0.6;
-  private readonly armsModelPath = '/models/fps_arms.glb';
-  private readonly gunModelPath = '/models/4k_assault_rifle__weapon_pack_with_attachments.glb';
+  private readonly firstPersonLayer = 1;
+  private readonly armsModelPath = '/models/Rigged Fps Arms.glb';
+  private readonly gunModelPath = '/models/Pistol.glb';
   private readonly firstPersonRig = new THREE.Group();
 
   constructor() {
@@ -26,6 +27,7 @@ export class Player {
     this.position = this.group.position;
     this.loader = new GLTFLoader();
     this.position.set(0, 10, 0);
+    this.firstPersonRig.renderOrder = 1000;
     this.loadModels();
   }
 
@@ -38,10 +40,11 @@ export class Player {
       (gltf) => {
         this.armsModel = gltf.scene;
         this.prepareModel(this.armsModel);
-        this.fitModelToHeight(this.armsModel, 1.2);
+        this.fitModelToHeight(this.armsModel, 1.35);
         this.centerModel(this.armsModel);
-        this.armsModel.position.set(-0.05, -0.84, -0.16);
-        this.armsModel.rotation.set(0.04, Math.PI, 0.08);
+        this.configureFirstPersonObject(this.armsModel);
+        this.armsModel.position.set(0.18, -0.9, -0.22);
+        this.armsModel.rotation.set(0.08, Math.PI - 0.2, 0.16);
         this.firstPersonRig.add(this.armsModel);
         console.log(`Arms model loaded from ${this.armsModelPath}`);
       },
@@ -58,10 +61,11 @@ export class Player {
       (gltf) => {
         this.gunModel = gltf.scene;
         this.prepareModel(this.gunModel);
-        this.fitModelToLongestSide(this.gunModel, 0.9);
+        this.fitModelToLongestSide(this.gunModel, 0.42);
         this.centerModel(this.gunModel);
-        this.gunModel.position.set(0.2, -0.16, -0.12);
-        this.gunModel.rotation.set(0.02, -Math.PI / 2, 0.04);
+        this.configureFirstPersonObject(this.gunModel);
+        this.gunModel.position.set(0.14, -0.14, -0.02);
+        this.gunModel.rotation.set(-0.02, -Math.PI / 2 - 0.12, 0.14);
         this.gun.add(this.gunModel);
         console.log(`Gun model loaded from ${this.gunModelPath}`);
       },
@@ -98,6 +102,17 @@ export class Player {
 
           material.needsUpdate = true;
         }
+      }
+    });
+  }
+
+  private configureFirstPersonObject(object: THREE.Object3D) {
+    object.traverse((child) => {
+      child.layers.set(this.firstPersonLayer);
+
+      if (child instanceof THREE.Mesh) {
+        child.renderOrder = 1000;
+        child.frustumCulled = false;
       }
     });
   }
@@ -201,10 +216,10 @@ export class Player {
         this.firstPersonRig.add(this.gun);
       }
 
-      this.firstPersonRig.position.set(0.18, -0.28, -0.36);
-      this.firstPersonRig.rotation.set(0, -0.03, 0);
-      this.gun.position.set(0.28, -0.02, -0.12);
-      this.gun.rotation.set(-0.1, -0.28, -0.02);
+      this.firstPersonRig.position.set(0.3, -0.27, -0.28);
+      this.firstPersonRig.rotation.set(0.01, -0.08, 0);
+      this.gun.position.set(0.24, 0.01, -0.1);
+      this.gun.rotation.set(-0.02, -0.1, 0.02);
     } else {
       const offset = new THREE.Vector3(0, 2, 5);
       offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);

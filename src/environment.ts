@@ -18,15 +18,18 @@ export class Environment {
 
   private setupLights() {
     const skyLight = new THREE.AmbientLight(0xffffff, 0.8);
+    skyLight.layers.enable(1);
     this.scene.add(skyLight);
 
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(20, 30, 10);
     sun.castShadow = true;
+    sun.layers.enable(1);
     this.scene.add(sun);
 
     const fill = new THREE.DirectionalLight(0xc0d8ff, 0.4);
     fill.position.set(-10, 15, -20);
+    fill.layers.enable(1);
     this.scene.add(fill);
   }
 
